@@ -20,6 +20,7 @@ import {
   Shield,
   Compass,
   ChevronDown,
+  Rocket,
 } from 'lucide-react'
 import { useIDEStore } from '@/lib/store'
 import { Button } from '@/components/ui/button'
@@ -190,10 +191,12 @@ export default function IDEToolbar() {
     showTerminal,
     showAIChat,
     showPreview,
+    showDeployPanel,
     toggleFileExplorer,
     toggleTerminal,
     toggleAIChat,
     togglePreview,
+    toggleDeployPanel,
     refreshPreview,
     user,
     setCurrentView,
@@ -357,6 +360,12 @@ export default function IDEToolbar() {
           label="مساعد AI"
           isActive={showAIChat}
           onClick={toggleAIChat}
+        />
+        <ToolbarButton
+          icon={Rocket}
+          label="نشر"
+          isActive={showDeployPanel}
+          onClick={toggleDeployPanel}
         />
       </div>
 

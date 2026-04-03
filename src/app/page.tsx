@@ -17,6 +17,7 @@ import RegisterForm from '@/components/auth/register-form'
 import UserProfile from '@/components/profile/user-profile'
 import ExploreProjects from '@/components/explore/explore-projects'
 import AdminDashboard from '@/components/admin/admin-dashboard'
+import DeployPanel from '@/components/deploy/deploy-panel'
 import { useIDEStore, type MobileView } from '@/lib/store'
 import { useIsMobile } from '@/hooks/use-mobile'
 import {
@@ -321,6 +322,7 @@ export default function Home() {
   return (
     <div className="dark h-dvh w-dvw overflow-hidden bg-[#11111b] text-foreground">
       {isIDEView && <IDEView />}
+      <DeployPanel />
 
       {!isIDEView && (
         <div className="flex flex-col h-dvh">

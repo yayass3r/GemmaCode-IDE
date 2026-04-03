@@ -27,6 +27,7 @@ model User {
 
   projects Project[]
   settings UserSetting[]
+  deployments Deployment[]
 }
 
 // ─── Projects ───
@@ -75,6 +76,21 @@ model UserSetting {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, key])
+}
+
+// ─── Deployments ───
+model Deployment {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  provider    String   // "netlify" | "vercel" | "surge" | "cloudflare" | "github-pages"
+  url         String
+  status      String   @default("deploying") // "deploying" | "live" | "failed" | "deleted"
+  siteId      String?  // Provider's site ID
+  filesCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ─── System Notifications ───

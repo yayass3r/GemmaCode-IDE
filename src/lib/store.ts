@@ -74,6 +74,7 @@ interface IDEStore {
   showTerminal: boolean
   showAIChat: boolean
   showFileExplorer: boolean
+  showDeployPanel: boolean
 
   // ── Mobile active view ──
   mobileActiveView: MobileView
@@ -102,6 +103,7 @@ interface IDEStore {
   toggleTerminal: () => void
   toggleAIChat: () => void
   toggleFileExplorer: () => void
+  toggleDeployPanel: () => void
 
   // ── Mobile view action ──
   setMobileView: (view: MobileView) => void
@@ -331,6 +333,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   showTerminal: true,
   showAIChat: false,
   showFileExplorer: true,
+  showDeployPanel: false,
 
   // ── Mobile active view ──
   mobileActiveView: 'editor' as MobileView,
@@ -445,6 +448,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   toggleTerminal: () => set((state) => ({ showTerminal: !state.showTerminal })),
   toggleAIChat: () => set((state) => ({ showAIChat: !state.showAIChat })),
   toggleFileExplorer: () => set((state) => ({ showFileExplorer: !state.showFileExplorer })),
+  toggleDeployPanel: () => set((state) => ({ showDeployPanel: !state.showDeployPanel })),
 
   // ── Mobile view ──
   setMobileView: (view) => set({ mobileActiveView: view }),
