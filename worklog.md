@@ -213,3 +213,33 @@ Stage Summary:
 - All auth endpoints functional on Vercel
 - When database is restored, system automatically upgrades to DB-backed auth
 - Deployed to: https://my-project-tvyas409.vercel.app
+
+---
+Task ID: 12
+Agent: main
+Task: Fix AI Chat - bypass SDK, add X-Token authentication support
+
+Work Log:
+- Discovered root cause: AI server at 172.25.136.193:8080 requires X-Token header for authentication
+- The .z-ai-config file only has baseUrl and apiKey, but NO token field
+- The z-ai-web-dev-sdk only sends X-Token if config.token is set (skip if empty/falsy)
+- Server returns 401 "missing X-Token header" when token is not provided
+- Completely rewrote ai-chat/route.ts to bypass SDK entirely:
+  - Direct HTTP fetch calls to AI server (no SDK dependency)
+  - Reads config from environment variables (ZAI_BASE_URL, ZAI_API_KEY, ZAI_TOKEN)
+  - Proper X-Token header support
+  - Handles both streaming (SSE) and non-streaming responses
+  - Clear Arabic error messages for all failure cases (no token, auth error, rate limit, etc.)
+- Updated .z-ai-config to include token field
+- Updated .env and .env.example with ZAI_TOKEN documentation
+- TypeScript check: passed
+- Build: compiled successfully
+- Deployed to Vercel via npx vercel --prod
+
+Stage Summary:
+- AI chat completely rewritten to use direct HTTP calls (no SDK dependency)
+- ZAI_TOKEN env var is REQUIRED for AI chat to work
+- When ZAI_TOKEN is set, AI chat will work immediately in both dev and production
+- Without ZAI_TOKEN, returns clear Arabic error message
+- Vercel env vars: ZAI_BASE_URL and ZAI_API_KEY already set; ZAI_TOKEN needs to be added
+- Deployed to: https://my-project-tvyas409.vercel.app
