@@ -1,58 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
+import ZAI from 'z-ai-web-dev-sdk'
 
-// ─── Direct HTTP AI Client (No SDK Dependency) ───
-// This approach bypasses z-ai-web-dev-sdk entirely and makes direct HTTP calls
-// to the AI server. This eliminates all config file issues and works reliably
-// in both development and production (Vercel) environments.
-//
-// Configuration is done entirely through environment variables:
-//   ZAI_BASE_URL  - AI server endpoint (default: internal dev server)
-//   ZAI_API_KEY   - API key for Authorization header (default: "Z.ai")
-//   ZAI_TOKEN     - Auth token for X-Token header (REQUIRED by the server)
+// ─── z-ai-web-dev-sdk AI Client (Cloud API) ───
+// Uses Z.ai Cloud API instead of internal dev server.
+// Works on ANY hosting platform (Vercel, Netlify, Railway, etc.)
+// No need for internal server access or custom tokens.
 
-interface AIConfig {
-  baseUrl: string
-  apiKey: string
-  token: string
-  chatId: string
-  userId: string
-}
+// Cache the SDK instance for reuse
+let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null
 
-function getAIConfig(): AIConfig {
-  const baseUrl = process.env.ZAI_BASE_URL || 'http://172.25.136.193:8080/v1'
-  const apiKey = process.env.ZAI_API_KEY || 'Z.ai'
-  const token = process.env.ZAI_TOKEN || process.env.ZAI_TOKEN_HEADER || ''
-  const chatId = process.env.ZAI_CHAT_ID || ''
-  const userId = process.env.ZAI_USER_ID || ''
-
-  return { baseUrl, apiKey, token, chatId, userId }
-}
-
-// Build headers for AI API requests
-function buildHeaders(config: AIConfig, isJson: boolean = true): Record<string, string> {
-  const headers: Record<string, string> = {
-    'X-Z-AI-From': 'Z',
+async function getZAI() {
+  if (!zaiInstance) {
+    zaiInstance = await ZAI.create()
   }
-
-  if (isJson) {
-    headers['Content-Type'] = 'application/json'
-  }
-
-  if (config.token) {
-    headers['X-Token'] = config.token
-  }
-
-  if (config.chatId) {
-    headers['X-Chat-Id'] = config.chatId
-  }
-
-  if (config.userId) {
-    headers['X-User-Id'] = config.userId
-  }
-
-  headers['Authorization'] = `Bearer ${config.apiKey}`
-
-  return headers
+  return zaiInstance
 }
 
 // ─── Rate Limiting (in-memory, per-IP) ───
@@ -207,191 +168,98 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    // ─── Load AI Configuration ───
-    const config = getAIConfig()
-
-    // Check if token is available
-    if (!config.token) {
-      console.error('[AI Chat] ZAI_TOKEN environment variable is not set. The AI server requires an X-Token header.')
+    // ─── Initialize SDK ───
+    let zai: Awaited<ReturnType<typeof ZAI.create>>
+    try {
+      zai = await getZAI()
+    } catch (initError) {
+      console.error('[AI Chat] SDK initialization failed:', initError)
       return NextResponse.json(
-        {
-          error: 'خدمة الذكاء الاصطناعي غير متوفرة حالياً. يجب تعيين ZAI_TOKEN في متغيرات البيئة.',
-          hint: 'قم بتعيين متغير البيئة ZAI_TOKEN في إعدادات المشروع أو على Vercel.'
-        },
+        { error: 'تعذر تهيئة خدمة الذكاء الاصطناعي. يرجى المحاولة لاحقاً.' },
         { status: 503 }
       )
     }
 
-    // Build messages array with system prompt
+    // ─── Build messages array with system prompt ───
     const allMessages = [
       { role: 'system' as const, content: FULLSTACK_SYSTEM_PROMPT },
       ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ]
 
-    const requestBody = {
-      messages: allMessages,
-      temperature: Math.min(Math.max(temperature, 0), 2),
-      max_tokens: 8192,
-      thinking: { type: 'disabled' as const },
-    }
+    // ─── Call AI via SDK (non-streaming, then simulate SSE for frontend) ───
+    let messageContent: string | undefined
 
-    const url = `${config.baseUrl}/chat/completions`
-    const headers = buildHeaders(config)
-
-    // ─── Streaming Response ───
-    if (stream) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ ...requestBody, stream: true }),
-        })
-
-        if (!response.ok) {
-          const errorBody = await response.text()
-          console.error(`[AI Chat] AI server error ${response.status}:`, errorBody)
-
-          // Handle specific error codes
-          if (response.status === 401) {
-            return NextResponse.json(
-              { error: 'خطأ في مصادقة الذكاء الاصطناعي. تأكد من صحة ZAI_TOKEN.' },
-              { status: 502 }
-            )
-          }
-          if (response.status === 429) {
-            return NextResponse.json(
-              { error: 'تم تجاوز حد الطلبات على خادم الذكاء الاصطناعي. يرجى الانتظار قليلاً.' },
-              { status: 429, headers: { 'Retry-After': '30' } }
-            )
-          }
-
-          return NextResponse.json(
-            { error: `خطأ من خادم الذكاء الاصطناعي (${response.status}). يرجى المحاولة لاحقاً.` },
-            { status: 502 }
-          )
-        }
-
-        // Forward the SSE stream from AI server to client
-        const encoder = new TextEncoder()
-        const aiStream = response.body!
-
-        const sseStream = new ReadableStream({
-          async start(controller) {
-            try {
-              const reader = aiStream.getReader()
-              let buffer = ''
-
-              while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
-
-                buffer += new TextDecoder().decode(value, { stream: true })
-                const lines = buffer.split('\n')
-                buffer = lines.pop() || ''
-
-                for (const line of lines) {
-                  const trimmed = line.trim()
-
-                  if (!trimmed || trimmed === 'data: [DONE]') {
-                    if (trimmed === 'data: [DONE]') {
-                      controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-                    }
-                    continue
-                  }
-
-                  if (trimmed.startsWith('data: ')) {
-                    try {
-                      const jsonStr = trimmed.slice(6)
-                      const parsed = JSON.parse(jsonStr)
-                      const content = parsed.choices?.[0]?.delta?.content
-                      if (content) {
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`))
-                      }
-                    } catch {
-                      // Skip malformed JSON chunks — continue streaming
-                    }
-                  }
-                }
-              }
-
-              // Process remaining buffer
-              if (buffer.trim()) {
-                const trimmed = buffer.trim()
-                if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
-                  try {
-                    const parsed = JSON.parse(trimmed.slice(6))
-                    const content = parsed.choices?.[0]?.delta?.content
-                    if (content) {
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`))
-                    }
-                  } catch { /* skip */ }
-                }
-              }
-
-              controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-              controller.close()
-            } catch (err) {
-              console.error('[AI Chat] Stream forwarding error:', err)
-              const message = err instanceof Error ? err.message : 'Stream error'
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`))
-              controller.close()
-            }
-          },
-        })
-
-        return new Response(sseStream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache, no-transform',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          },
-        })
-      } catch (fetchError) {
-        console.error('[AI Chat] Fetch error (streaming):', fetchError)
-        const message = fetchError instanceof Error ? fetchError.message : 'Connection failed'
-        return NextResponse.json(
-          { error: `تعذر الاتصال بخادم الذكاء الاصطناعي: ${message}` },
-          { status: 502 }
-        )
-      }
-    }
-
-    // ─── Non-Streaming Fallback ───
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody),
+      const completion = await zai.chat.completions.create({
+        messages: allMessages,
+        temperature: Math.min(Math.max(temperature, 0), 2),
       })
 
-      if (!response.ok) {
-        const errorBody = await response.text()
-        console.error(`[AI Chat] AI server error ${response.status}:`, errorBody)
-        return NextResponse.json(
-          { error: `خطأ من خادم الذكاء الاصطناعي (${response.status})` },
-          { status: 502 }
-        )
-      }
-
-      const data = await response.json()
-      const messageContent = data.choices?.[0]?.message?.content
-
-      if (!messageContent) {
-        return NextResponse.json({ error: 'لم يتم تلقي رد من الذكاء الاصطناعي.' }, { status: 500 })
-      }
-
-      return NextResponse.json({ content: messageContent })
-    } catch (fetchError) {
-      console.error('[AI Chat] Fetch error (non-streaming):', fetchError)
-      const message = fetchError instanceof Error ? fetchError.message : 'Connection failed'
+      console.log('[AI Chat] SDK response received:', JSON.stringify(completion).slice(0, 200))
+      messageContent = completion.choices?.[0]?.message?.content
+    } catch (aiError: unknown) {
+      console.error('[AI Chat] SDK call failed:', aiError)
+      const errMsg = aiError instanceof Error ? aiError.message : 'AI call failed'
       return NextResponse.json(
-        { error: `تعذر الاتصال بخادم الذكاء الاصطناعي: ${message}` },
+        { error: `خطأ في خدمة الذكاء الاصطناعي: ${errMsg}` },
         { status: 502 }
       )
     }
+
+    if (!messageContent) {
+      console.error('[AI Chat] Empty response from AI')
+      return NextResponse.json(
+        { error: 'لم يتم تلقي رد من الذكاء الاصطناعي. يرجى المحاولة مرة أخرى.' },
+        { status: 500 }
+      )
+    }
+
+    // ─── Stream response to frontend in SSE format ───
+    if (stream) {
+      const encoder = new TextEncoder()
+      const CHUNK_SIZE = 8 // characters per chunk for smooth typing effect
+
+      const sseStream = new ReadableStream({
+        async start(controller) {
+          try {
+            // Send content in small chunks to simulate real-time streaming
+            for (let i = 0; i < messageContent!.length; i += CHUNK_SIZE) {
+              const chunk = messageContent!.slice(i, i + CHUNK_SIZE)
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`)
+              )
+              // Minimal delay for natural typing effect (non-blocking)
+              await new Promise(resolve => setTimeout(resolve, 5))
+            }
+
+            // Signal stream end
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+          } catch (err) {
+            console.error('[AI Chat] SSE streaming error:', err)
+            const errorMsg = err instanceof Error ? err.message : 'Stream error'
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`)
+            )
+            controller.close()
+          }
+        },
+      })
+
+      return new Response(sseStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      })
+    }
+
+    // ─── Non-streaming response ───
+    return NextResponse.json({ content: messageContent })
   } catch (error: unknown) {
-    console.error('[AI Chat] Error:', error)
+    console.error('[AI Chat] Unhandled error:', error)
     const message = error instanceof Error ? error.message : 'Internal server error'
     return NextResponse.json({ error: message }, { status: 500 })
   }
