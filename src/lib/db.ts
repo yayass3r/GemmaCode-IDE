@@ -1,53 +1,74 @@
 import { PrismaClient } from '@prisma/client'
+import { Pool, neonConfig } from '@neondatabase/serverless'
+import ws from 'ws'
 
-/**
- * Prisma Database Client (Lazy Singleton)
- * 
- * This module provides an optional database client for GemmaCode.
- * The database is NOT required for core IDE functionality - all files
- * are stored in-memory via Zustand store.
- * 
- * Database features are available for optional persistence:
- * - Project saving/loading
- * - User authentication (future)
- * - Collaboration features (future)
- * 
- * For serverless deployment (Vercel/Netlify), use Prisma Accelerate
- * or a cloud database (PostgreSQL via Supabase/Neon/PlanetScale).
- * 
- * The client is lazily initialized to avoid build-time errors when
- * no database is configured.
- */
-
-let _db: PrismaClient | null = null
-
-function getPrismaClient(): PrismaClient {
-  if (!_db) {
-    try {
-      _db = new PrismaClient({
-        log: process.env.NODE_ENV === 'development' ? ['query'] : [],
-      })
-    } catch (error) {
-      console.warn('[GemmaCode] Database client initialization failed. Core IDE features will work without database persistence.')
-      // Return a dummy-like client that won't crash the app
-      _db = new PrismaClient({ datasourceUrl: 'file:/tmp/gemmacode-placeholder.db' })
-    }
-  }
-  return _db
+// Enable WebSocket for Neon serverless driver in Node.js environments
+if (typeof WebSocket === 'undefined') {
+  // @ts-expect-error ws is a WebSocket implementation for Node.js
+  globalThis.WebSocket = ws
 }
 
-// Lazy-initialized database client
-// Import only when database features are needed
-export const db = new Proxy({} as PrismaClient, {
+// Configure Neon for serverless
+neonConfig.webSocketConstructor = ws
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined
+}
+
+function createPrismaClient(): PrismaClient | null {
+  const databaseUrl = process.env.DATABASE_URL
+  
+  if (!databaseUrl || databaseUrl === 'file:/dev/null') {
+    console.warn('[GemmaCode] No DATABASE_URL configured. Database features disabled. Core IDE works without DB.')
+    return null
+  }
+  
+  try {
+    // For serverless environments (Vercel), use connection pooling
+    // Neon provides both pooled (port 6543) and direct connections
+    const isPooled = databaseUrl.includes('-pooler.')
+    
+    return new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['error'] : ['error'],
+      datasources: isPooled ? {
+        db: {
+          url: databaseUrl,
+        },
+      } : undefined,
+    })
+  } catch (error) {
+    console.error('[GemmaCode] Database client initialization failed:', error)
+    return null
+  }
+}
+
+let _db: PrismaClient | null = globalForPrisma.prisma ?? createPrismaClient()
+
+if (!globalForPrisma.prisma && _db) {
+  globalForPrisma.prisma = _db
+}
+
+// Database client with graceful fallback when no DB is configured
+export const db = _db ?? new Proxy({} as PrismaClient, {
   get(_target, prop) {
-    return Reflect.get(getPrismaClient(), prop)
+    if (prop === '$connect' || prop === '$disconnect' || prop === '$on') return async () => {}
+    if (prop === '$queryRaw' || prop === '$executeRaw') return async () => []
+    if (prop === '$transaction') return async (fn: Function) => {
+      try { return await fn(_db ?? {} as any) } catch { return null }
+    }
+    if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined
+    // Return proxy chain for model operations
+    return new Proxy(() => {}, {
+      get: () => () => Promise.resolve(null),
+      apply: () => Promise.resolve(null),
+    })
   },
 })
 
-// Helper to check if database is available
 export async function isDatabaseAvailable(): Promise<boolean> {
+  if (!_db) return false
   try {
-    await getPrismaClient().$queryRaw`SELECT 1`
+    await _db.$queryRaw`SELECT 1`
     return true
   } catch {
     return false

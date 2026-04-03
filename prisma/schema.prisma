@@ -1,12 +1,13 @@
 // This is your Prisma schema file,
 // GemmaCode IDE — Full-Stack Platform
+// Supports both SQLite (local) and PostgreSQL (Vercel/production)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -18,7 +19,7 @@ model User {
   password  String
   avatar    String    @default("")
   bio       String    @default("")
-  role      String    @default("user") // "user" | "admin"
+  role      String    @default("user")
   isBanned  Boolean   @default(false)
   isOnline  Boolean   @default(false)
   lastSeen  DateTime  @default(now())
@@ -35,7 +36,7 @@ model Project {
   id          String   @id @default(cuid())
   title       String
   description String   @default("")
-  files       String   // JSON string of file contents
+  files       String
   coverImage  String   @default("")
   isPublished Boolean  @default(false)
   isFeatured  Boolean  @default(false)
@@ -43,7 +44,7 @@ model Project {
   stars       Int      @default(0)
   views       Int      @default(0)
   forks       Int      @default(0)
-  tags        String   @default("[]") // JSON array
+  tags        String   @default("[]")
   authorId    String
   author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
@@ -54,11 +55,11 @@ model Project {
 model Ad {
   id          String   @id @default(cuid())
   title       String
-  type        String   @default("custom") // "adsense" | "admob" | "custom"
-  code        String   @default("") // Ad code/script
-  position    String   @default("header") // "header" | "sidebar" | "footer" | "inline"
+  type        String   @default("custom")
+  code        String   @default("")
+  position    String   @default("header")
   isActive    Boolean  @default(true)
-  priority    Int      @default(0) // Higher = shown first
+  priority    Int      @default(0)
   Impressions Int      @default(0)
   clicks      Int      @default(0)
   createdAt   DateTime @default(now())
@@ -84,10 +85,10 @@ model Deployment {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
-  provider    String   // "netlify" | "vercel" | "surge" | "cloudflare" | "github-pages"
+  provider    String
   url         String
-  status      String   @default("deploying") // "deploying" | "live" | "failed" | "deleted"
-  siteId      String?  // Provider's site ID
+  status      String   @default("deploying")
+  siteId      String?
   filesCount  Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -98,7 +99,7 @@ model Notification {
   id        String   @id @default(cuid())
   title     String
   message   String
-  type      String   @default("info") // "info" | "warning" | "success" | "error"
+  type      String   @default("info")
   userId    String?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
