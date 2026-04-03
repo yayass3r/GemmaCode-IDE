@@ -1,5 +1,39 @@
 import { create } from 'zustand'
 
+// ─── User & Auth Types ────────────────────────────────────────
+export interface UserProfile {
+  id: string
+  name: string
+  email: string
+  role: string
+  avatar: string
+  bio: string
+  isOnline?: boolean
+  lastSeen?: string
+  createdAt?: string
+}
+
+export interface Project {
+  id: string
+  title: string
+  description: string
+  files: string
+  coverImage: string
+  isPublished: boolean
+  isFeatured: boolean
+  isHidden: boolean
+  stars: number
+  views: number
+  forks: number
+  tags: string
+  authorId: string
+  author?: { id: string; name: string; avatar: string }
+  createdAt: string
+  updatedAt: string
+}
+
+export type AppView = 'ide' | 'login' | 'register' | 'profile' | 'admin' | 'explore'
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -17,31 +51,41 @@ export interface TerminalLine {
 export type MobileView = 'editor' | 'preview' | 'terminal' | 'aichat' | 'files'
 
 interface IDEStore {
-  // File state
+  // ── Auth state ──
+  user: UserProfile | null
+  token: string | null
+  currentView: AppView
+
+  // ── Auth actions ──
+  setUser: (user: UserProfile, token: string) => void
+  logout: () => void
+  setCurrentView: (view: AppView) => void
+
+  // ── File state ──
   files: Record<string, string>
   activeFile: string | null
   openTabs: string[]
 
-  // Panel visibility
+  // ── Panel visibility ──
   showPreview: boolean
   showTerminal: boolean
   showAIChat: boolean
   showFileExplorer: boolean
 
-  // Mobile active view (which panel is visible)
+  // ── Mobile active view ──
   mobileActiveView: MobileView
 
-  // Terminal state
+  // ── Terminal state ──
   terminalLines: TerminalLine[]
 
-  // Chat state
+  // ── Chat state ──
   chatMessages: ChatMessage[]
   isChatLoading: boolean
 
-  // Preview key for force refresh
+  // ── Preview key ──
   previewKey: number
 
-  // File actions
+  // ── File actions ──
   createFile: (path: string, content?: string) => void
   deleteFile: (path: string) => void
   renameFile: (oldPath: string, newPath: string) => void
@@ -50,27 +94,27 @@ interface IDEStore {
   openTab: (path: string) => void
   closeTab: (path: string) => void
 
-  // Panel toggle actions
+  // ── Panel toggle actions ──
   togglePreview: () => void
   toggleTerminal: () => void
   toggleAIChat: () => void
   toggleFileExplorer: () => void
 
-  // Mobile view action
+  // ── Mobile view action ──
   setMobileView: (view: MobileView) => void
 
-  // Terminal actions
+  // ── Terminal actions ──
   addTerminalLine: (type: TerminalLine['type'], content: string) => void
   clearTerminal: () => void
 
-  // Chat actions
+  // ── Chat actions ──
   addChatMessage: (role: 'user' | 'assistant', content: string) => void
   updateLastAssistantMessage: (content: string) => void
   finishStreaming: () => void
   setChatLoading: (loading: boolean) => void
   clearChat: () => void
 
-  // Preview actions
+  // ── Preview actions ──
   refreshPreview: () => void
 }
 
@@ -252,28 +296,50 @@ let idCounter = 0
 const generateId = () => `id-${Date.now()}-${idCounter++}`
 
 export const useIDEStore = create<IDEStore>((set, get) => ({
-  // Initial file state
+  // ── Auth state ──
+  user: null,
+  token: null,
+  currentView: 'ide' as AppView,
+
+  // ── Auth actions ──
+  setUser: (user, token) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('gemmacode_token', token)
+      localStorage.setItem('gemmacode_user', JSON.stringify(user))
+    }
+    set({ user, token })
+  },
+  logout: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('gemmacode_token')
+      localStorage.removeItem('gemmacode_user')
+    }
+    set({ user: null, token: null, currentView: 'ide' as AppView })
+  },
+  setCurrentView: (view) => set({ currentView: view }),
+
+  // ── File state ──
   files: defaultFiles,
   activeFile: 'index.html',
   openTabs: ['index.html'],
 
-  // Initial panel visibility
+  // ── Panel visibility ──
   showPreview: true,
   showTerminal: true,
   showAIChat: false,
   showFileExplorer: true,
 
-  // Mobile active view
+  // ── Mobile active view ──
   mobileActiveView: 'editor' as MobileView,
 
-  // Initial terminal state
+  // ── Terminal state ──
   terminalLines: [
     { id: generateId(), type: 'info', content: 'Welcome to GemmaCode Terminal v1.0' },
     { id: generateId(), type: 'info', content: 'Type "help" for available commands.' },
     { id: generateId(), type: 'output', content: '' },
   ],
 
-  // Initial chat state
+  // ── Chat state ──
   chatMessages: [
     {
       id: generateId(),
@@ -284,9 +350,10 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   ],
   isChatLoading: false,
 
+  // ── Preview key ──
   previewKey: 0,
 
-  // File actions
+  // ── File actions ──
   createFile: (path, content = '') => {
     set((state) => {
       if (state.files[path]) return state
@@ -370,16 +437,16 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     })
   },
 
-  // Panel toggles
+  // ── Panel toggles ──
   togglePreview: () => set((state) => ({ showPreview: !state.showPreview })),
   toggleTerminal: () => set((state) => ({ showTerminal: !state.showTerminal })),
   toggleAIChat: () => set((state) => ({ showAIChat: !state.showAIChat })),
   toggleFileExplorer: () => set((state) => ({ showFileExplorer: !state.showFileExplorer })),
 
-  // Mobile view
+  // ── Mobile view ──
   setMobileView: (view) => set({ mobileActiveView: view }),
 
-  // Terminal actions
+  // ── Terminal actions ──
   addTerminalLine: (type, content) =>
     set((state) => ({
       terminalLines: [
@@ -389,7 +456,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     })),
   clearTerminal: () => set({ terminalLines: [] }),
 
-  // Chat actions
+  // ── Chat actions ──
   addChatMessage: (role, content) =>
     set((state) => ({
       chatMessages: [
@@ -432,6 +499,22 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       ],
     }),
 
-  // Preview actions
+  // ── Preview actions ──
   refreshPreview: () => set((state) => ({ previewKey: state.previewKey + 1 })),
 }))
+
+// ─── Hydrate auth from localStorage ──────────────────────────
+export function hydrateAuth(store: IDEStore) {
+  if (typeof window === 'undefined') return
+  const token = localStorage.getItem('gemmacode_token')
+  const userStr = localStorage.getItem('gemmacode_user')
+  if (token && userStr) {
+    try {
+      const user = JSON.parse(userStr) as UserProfile
+      store.setState({ user, token })
+    } catch {
+      localStorage.removeItem('gemmacode_token')
+      localStorage.removeItem('gemmacode_user')
+    }
+  }
+}

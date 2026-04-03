@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect } from 'react'
 import {
   Panel,
   PanelGroup,
@@ -12,6 +12,11 @@ import CodeEditor from '@/components/code-editor'
 import LivePreview from '@/components/live-preview'
 import Terminal from '@/components/terminal'
 import AIChat from '@/components/ai-chat'
+import LoginForm from '@/components/auth/login-form'
+import RegisterForm from '@/components/auth/register-form'
+import UserProfile from '@/components/profile/user-profile'
+import ExploreProjects from '@/components/explore/explore-projects'
+import AdminDashboard from '@/components/admin/admin-dashboard'
 import { useIDEStore, type MobileView } from '@/lib/store'
 import { useIsMobile } from '@/hooks/use-mobile'
 import {
@@ -20,6 +25,7 @@ import {
   Terminal as TerminalIcon,
   MessageSquare,
   Eye,
+  Sparkles,
 } from 'lucide-react'
 
 function ResizeHandle({
@@ -82,14 +88,13 @@ function MobileTabBar() {
   )
 }
 
-/* ─── Desktop Layout (existing resizable panels) ─── */
+/* ─── Desktop Layout (resizable panels) ─── */
 function DesktopLayout() {
   const { showFileExplorer, showTerminal, showPreview, showAIChat } =
     useIDEStore()
 
   return (
     <PanelGroup direction="horizontal" autoSaveId="ide-main-layout">
-      {/* File Explorer Panel */}
       {showFileExplorer && (
         <>
           <Panel
@@ -105,7 +110,6 @@ function DesktopLayout() {
         </>
       )}
 
-      {/* Center Panel Group (Editor + Terminal) */}
       <Panel order={2} minSize={30}>
         <PanelGroup direction="vertical" autoSaveId="ide-center-layout">
           <Panel defaultSize={showTerminal ? 70 : 100} minSize={30}>
@@ -123,7 +127,6 @@ function DesktopLayout() {
         </PanelGroup>
       </Panel>
 
-      {/* Right Panel (Preview + AI Chat) */}
       {showPreview && (
         <>
           <ResizeHandle direction="horizontal" />
@@ -152,7 +155,6 @@ function DesktopLayout() {
         </>
       )}
 
-      {/* AI Chat as standalone (when preview is off) */}
       {!showPreview && showAIChat && (
         <>
           <ResizeHandle direction="horizontal" />
@@ -171,7 +173,7 @@ function DesktopLayout() {
   )
 }
 
-/* ─── Mobile Layout (single panel, tab bar navigation) ─── */
+/* ─── Mobile Layout (single panel) ─── */
 function MobileLayout() {
   const { mobileActiveView } = useIDEStore()
 
@@ -189,19 +191,149 @@ function MobileLayout() {
   )
 }
 
-/* ─── Main Page ─── */
-export default function Home() {
+/* ─── Top Navigation Bar (when not in IDE view) ─── */
+function TopNavBar() {
+  const { user, currentView, setCurrentView, logout } = useIDEStore()
   const isMobile = useIsMobile()
 
   return (
-    <div className="dark h-dvh w-dvw overflow-hidden bg-[#11111b] text-foreground">
-      {/* Toolbar */}
-      <IDEToolbar />
+    <header className="h-14 bg-[#181825]/90 backdrop-blur-md border-b border-border flex items-center justify-between px-4">
+      {/* Logo */}
+      <div className="flex items-center gap-2">
+        <div className="size-8 rounded-lg bg-gradient-to-br from-emerald-500 to-blue-500 flex items-center justify-center">
+          <Sparkles className="size-4 text-white" />
+        </div>
+        <span className="font-bold text-sm bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
+          GemmaCode
+        </span>
+      </div>
 
-      {/* Main layout: height = full screen minus toolbar (h-10 on mobile, h-12 on desktop) */}
+      {/* Nav Links */}
+      <nav className="flex items-center gap-1">
+        {user && (
+          <>
+            <button
+              onClick={() => setCurrentView('ide')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                currentView === 'ide' ? 'bg-emerald-500/20 text-emerald-400' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+              }`}
+            >
+              {isMobile ? 'المحرر' : 'محرر الأكواد'}
+            </button>
+            <button
+              onClick={() => setCurrentView('explore')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                currentView === 'explore' ? 'bg-emerald-500/20 text-emerald-400' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+              }`}
+            >
+              استكشف
+            </button>
+            <button
+              onClick={() => setCurrentView('profile')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                currentView === 'profile' ? 'bg-emerald-500/20 text-emerald-400' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+              }`}
+            >
+              الملف الشخصي
+            </button>
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setCurrentView('admin')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  currentView === 'admin' ? 'bg-emerald-500/20 text-emerald-400' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+                }`}
+              >
+                لوحة التحكم
+              </button>
+            )}
+          </>
+        )}
+      </nav>
+
+      {/* User Menu */}
+      <div className="flex items-center gap-2">
+        {user ? (
+          <div className="flex items-center gap-2">
+            <div className="size-7 rounded-full bg-gradient-to-br from-emerald-500 to-blue-500 flex items-center justify-center text-[11px] font-bold text-white">
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+            <button
+              onClick={logout}
+              className="px-2 py-1 rounded-md text-[10px] text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              خروج
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setCurrentView('login')}
+            className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+          >
+            تسجيل الدخول
+          </button>
+        )}
+      </div>
+    </header>
+  )
+}
+
+/* ─── IDE View (with toolbar) ─── */
+function IDEView() {
+  const isMobile = useIsMobile()
+  const { user, setCurrentView, logout } = useIDEStore()
+
+  return (
+    <>
+      <IDEToolbar />
       <div className="h-[calc(100dvh-40px)] md:h-[calc(100dvh-48px)]">
         {isMobile ? <MobileLayout /> : <DesktopLayout />}
       </div>
+    </>
+  )
+}
+
+/* ─── Main Page ─── */
+export default function Home() {
+  const { currentView, user } = useIDEStore()
+  const store = useIDEStore()
+
+  // Hydrate auth from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('gemmacode_token')
+      const userStr = localStorage.getItem('gemmacode_user')
+      if (token && userStr) {
+        try {
+          const parsedUser = JSON.parse(userStr)
+          store.setState({ user: parsedUser, token })
+        } catch {
+          localStorage.removeItem('gemmacode_token')
+          localStorage.removeItem('gemmacode_user')
+        }
+      }
+    }
+  }, [])
+
+  // For IDE view, use the full-screen IDE layout
+  // For other views, use the nav bar + content layout
+  const isIDEView = currentView === 'ide'
+
+  return (
+    <div className="dark h-dvh w-dvw overflow-hidden bg-[#11111b] text-foreground">
+      {isIDEView && <IDEView />}
+
+      {!isIDEView && (
+        <div className="flex flex-col h-dvh">
+          <TopNavBar />
+          <main className="flex-1 overflow-auto">
+            {currentView === 'login' && <LoginForm />}
+            {currentView === 'register' && <RegisterForm />}
+            {currentView === 'profile' && <UserProfile />}
+            {currentView === 'explore' && <ExploreProjects />}
+            {currentView === 'admin' && <AdminDashboard />}
+          </main>
+        </div>
+      )}
     </div>
   )
 }

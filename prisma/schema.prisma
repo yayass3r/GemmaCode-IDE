@@ -1,8 +1,5 @@
 // This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// GemmaCode IDE — Full-Stack Platform
 
 generator client {
   provider = "prisma-client-js"
@@ -13,20 +10,80 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Users ───
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  password  String
+  avatar    String    @default("")
+  bio       String    @default("")
+  role      String    @default("user") // "user" | "admin"
+  isBanned  Boolean   @default(false)
+  isOnline  Boolean   @default(false)
+  lastSeen  DateTime  @default(now())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  projects Project[]
+  settings UserSetting[]
 }
 
-model Post {
+// ─── Projects ───
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @default("")
+  files       String   // JSON string of file contents
+  coverImage  String   @default("")
+  isPublished Boolean  @default(false)
+  isFeatured  Boolean  @default(false)
+  isHidden    Boolean  @default(false)
+  stars       Int      @default(0)
+  views       Int      @default(0)
+  forks       Int      @default(0)
+  tags        String   @default("[]") // JSON array
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── Advertisements ───
+model Ad {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   @default("custom") // "adsense" | "admob" | "custom"
+  code        String   @default("") // Ad code/script
+  position    String   @default("header") // "header" | "sidebar" | "footer" | "inline"
+  isActive    Boolean  @default(true)
+  priority    Int      @default(0) // Higher = shown first
+  Impressions Int      @default(0)
+  clicks      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── Platform Settings ───
+model UserSetting {
   id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     String   @default("")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+}
+
+// ─── System Notifications ───
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  message   String
+  type      String   @default("info") // "info" | "warning" | "success" | "error"
+  userId    String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
