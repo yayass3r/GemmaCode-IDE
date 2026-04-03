@@ -1,17 +1,4 @@
 import { PrismaClient } from '@prisma/client'
-import { neonConfig } from '@neondatabase/serverless'
-import ws from 'ws'
-
-// Enable WebSocket for Neon serverless driver in Node.js environments
-if (typeof WebSocket === 'undefined') {
-  // @ts-expect-error ws is a WebSocket implementation for Node.js
-  globalThis.WebSocket = ws
-}
-
-// Configure Neon for serverless (only if neonConfig is available)
-if (typeof neonConfig !== 'undefined' && neonConfig.webSocketConstructor !== undefined) {
-  neonConfig.webSocketConstructor = ws
-}
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -21,13 +8,13 @@ function createPrismaClient(): PrismaClient | null {
   const databaseUrl = process.env.DATABASE_URL
 
   if (!databaseUrl || databaseUrl === 'file:/dev/null') {
-    console.warn('[GemmaCode] No DATABASE_URL configured. Database features disabled. Core IDE works without DB.')
+    console.warn('[GemmaCode] No DATABASE_URL configured. Database features disabled.')
     return null
   }
 
   try {
     return new PrismaClient({
-      log: ['error'],
+      log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
     })
   } catch (error) {
     console.error('[GemmaCode] Database client initialization failed:', error)
@@ -50,7 +37,6 @@ export const db = _db ?? new Proxy({} as PrismaClient, {
       try { return await fn(_db ?? {} as any) } catch { return null }
     }
     if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined
-    // Return proxy chain for model operations
     return new Proxy(() => {}, {
       get: () => () => Promise.resolve(null),
       apply: () => Promise.resolve(null),
