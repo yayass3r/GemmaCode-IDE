@@ -21,7 +21,7 @@ interface AIConfig {
 function getAIConfig(): AIConfig {
   const baseUrl = process.env.ZAI_BASE_URL || 'http://172.25.136.193:8080/v1'
   const apiKey = process.env.ZAI_API_KEY || 'Z.ai'
-  const token = process.env.ZAI_TOKEN || ''
+  const token = process.env.ZAI_TOKEN || process.env.ZAI_TOKEN_HEADER || ''
   const chatId = process.env.ZAI_CHAT_ID || ''
   const userId = process.env.ZAI_USER_ID || ''
 
