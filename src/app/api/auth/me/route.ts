@@ -1,45 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
-import { authMiddleware } from '@/lib/auth'
+import { db, isDatabaseAvailable } from '@/lib/db'
+import { authMiddleware, type JwtPayload } from '@/lib/auth'
 
 // ─── GET /api/auth/me ────────────────────────────────────────
 // Return the currently authenticated user's profile.
 
 export async function GET(request: NextRequest) {
   try {
-    // ── Authenticate ────────────────────────────────────────
+    // ── Authenticate via JWT ───────────────────────────────
     const authResult = authMiddleware(request)
 
     if (authResult instanceof NextResponse) {
       return authResult
     }
 
-    const { user } = authResult
+    const { user: jwtUser } = authResult
 
-    // ── Fetch user from DB ──────────────────────────────────
-    const dbUser = await db.user.findUnique({
-      where: { id: user.userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        avatar: true,
-        bio: true,
-        role: true,
-        isOnline: true,
-        lastSeen: true,
-        createdAt: true,
-      },
-    })
+    // ── Try database lookup ────────────────────────────────
+    const dbAvailable = await isDatabaseAvailable()
 
-    if (!dbUser) {
-      return NextResponse.json(
-        { error: 'User account not found' },
-        { status: 404 }
-      )
+    if (dbAvailable) {
+      const dbUser = await db.user.findUnique({
+        where: { id: jwtUser.userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatar: true,
+          bio: true,
+          role: true,
+          isOnline: true,
+          lastSeen: true,
+          createdAt: true,
+        },
+      })
+
+      if (dbUser) {
+        return NextResponse.json({ user: dbUser })
+      }
     }
 
-    return NextResponse.json({ user: dbUser })
+    // ── Fallback: Return JWT data directly ─────────────────
+    // Works when DB is unavailable (fallback auth users)
+    return NextResponse.json({
+      user: {
+        id: jwtUser.userId,
+        name: jwtUser.email.split('@')[0],
+        email: jwtUser.email,
+        role: jwtUser.role,
+        avatar: '',
+        bio: '',
+        isOnline: true,
+        lastSeen: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      },
+      _fallback: true,
+    })
   } catch (error) {
     console.error('[Auth] Get current user error:', error)
     return NextResponse.json(

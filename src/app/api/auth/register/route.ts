@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseAvailable } from '@/lib/db'
 import { hashPassword, generateToken } from '@/lib/auth'
 
 // ─── POST /api/auth/register ─────────────────────────────────
 // Register a new user account.
+// Falls back to JWT-only registration when database is unavailable.
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,47 +44,74 @@ export async function POST(request: NextRequest) {
     const trimmedEmail = email.trim().toLowerCase()
     const trimmedName = name.trim()
 
-    // ── Check for existing user ─────────────────────────────
-    const existingUser = await db.user.findUnique({
-      where: { email: trimmedEmail },
-    })
+    // ── Check if database is available ──────────────────────
+    const dbAvailable = await isDatabaseAvailable()
 
-    if (existingUser) {
+    if (dbAvailable) {
+      // ── Database-backed registration ─────────────────────
+      const existingUser = await db.user.findUnique({
+        where: { email: trimmedEmail },
+      })
+
+      if (existingUser) {
+        return NextResponse.json(
+          { error: 'An account with this email already exists' },
+          { status: 409 }
+        )
+      }
+
+      const hashedPassword = await hashPassword(password)
+
+      const user = await db.user.create({
+        data: {
+          name: trimmedName,
+          email: trimmedEmail,
+          password: hashedPassword,
+          role: 'user',
+        },
+      })
+
+      const token = generateToken({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      })
+
       return NextResponse.json(
-        { error: 'An account with this email already exists' },
-        { status: 409 }
+        {
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          },
+          token,
+        },
+        { status: 201 }
       )
     }
 
-    // ── Create user ─────────────────────────────────────────
-    const hashedPassword = await hashPassword(password)
+    // ── Fallback: JWT-only registration (no DB) ─────────────
+    console.log('[Auth] Database unavailable, using fallback registration')
 
-    const user = await db.user.create({
-      data: {
-        name: trimmedName,
-        email: trimmedEmail,
-        password: hashedPassword,
-        role: 'user',
-      },
-    })
-
-    // ── Generate token ──────────────────────────────────────
+    const userId = `fallback-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const token = generateToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
+      userId,
+      email: trimmedEmail,
+      role: 'user',
     })
 
-    // ── Response (never expose password hash) ───────────────
     return NextResponse.json(
       {
         user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
+          id: userId,
+          name: trimmedName,
+          email: trimmedEmail,
+          role: 'user',
         },
         token,
+        _fallback: true,
+        _warning: 'Database is unavailable. Account is session-only and will not persist.',
       },
       { status: 201 }
     )
