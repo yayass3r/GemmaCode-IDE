@@ -13,6 +13,9 @@ export interface UserProfile {
   createdAt?: string
 }
 
+// Alias used by auth forms
+export type AuthUser = UserProfile
+
 export interface Project {
   id: string
   title: string
