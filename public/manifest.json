@@ -1,0 +1,19 @@
+{
+  "name": "GemmaCode IDE",
+  "short_name": "GemmaCode",
+  "description": "بيئة تطوير متكاملة مع مساعد AI Gemma 4 للتطوير Full-Stack",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#11111b",
+  "theme_color": "#11111b",
+  "orientation": "any",
+  "categories": ["developer tools", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
