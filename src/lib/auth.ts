@@ -2,14 +2,14 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { NextRequest, NextResponse } from 'next/server'
 
-// Ensure JWT_SECRET is set in production
-if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
-  console.warn('[SECURITY WARNING] JWT_SECRET is not set in environment variables. Using fallback key is unsafe for production.')
-}
-
 // ─── Configuration ───────────────────────────────────────────
-const JWT_SECRET = process.env.JWT_SECRET || 'gemmacode-dev-fallback-key-change-in-production'
+const JWT_SECRET = process.env.JWT_SECRET || ''
 const JWT_EXPIRY = '7d'
+
+// In production, JWT_SECRET must be set
+if (process.env.NODE_ENV === 'production' && !JWT_SECRET) {
+  console.error('[SECURITY] JWT_SECRET is not set in production. Authentication will fail.')
+}
 
 // ─── Types ───────────────────────────────────────────────────
 export interface JwtPayload {
@@ -18,20 +18,20 @@ export interface JwtPayload {
   role: string
 }
 
-// ─── Password Utilities ──────────────────────────────────────
+// ─── Password Utilities (async for serverless compatibility) ──
 
 /**
- * Hash a plain-text password using bcrypt.
+ * Hash a plain-text password using bcrypt (async).
  */
-export function hashPassword(password: string): string {
-  return bcrypt.hashSync(password, 12)
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 12)
 }
 
 /**
- * Compare a plain-text password against a bcrypt hash.
+ * Compare a plain-text password against a bcrypt hash (async).
  */
-export function comparePassword(password: string, hash: string): boolean {
-  return bcrypt.compareSync(password, hash)
+export async function comparePassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash)
 }
 
 // ─── JWT Utilities ───────────────────────────────────────────
@@ -44,6 +44,9 @@ export function generateToken(payload: {
   email: string
   role: string
 }): string {
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is not configured')
+  }
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY })
 }
 
@@ -52,6 +55,7 @@ export function generateToken(payload: {
  * Returns null if the token is invalid or expired.
  */
 export function verifyToken(token: string): JwtPayload | null {
+  if (!JWT_SECRET) return null
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
     return decoded

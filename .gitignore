@@ -20,6 +20,9 @@ node_modules
 # production
 /build
 
+# database
+/db/
+
 # misc
 .DS_Store
 *.pem
@@ -34,24 +37,25 @@ yarn-error.log*
 .env
 .env.local
 .env.production
+.env.vercel
 
 # vercel
 .vercel
 
+# z-ai config (contains tokens)
+.z-ai-config
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 local-*
 .claude
-.z-ai-config
 *.log
 dev.log
 dev.out.log
-test
-prompt
 
-server.log
 # Skills directory
 /skills/
-.env*.local
+
+# download output
+/download/

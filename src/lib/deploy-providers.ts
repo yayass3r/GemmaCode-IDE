@@ -209,16 +209,12 @@ async function deployToSurge(
       provider: 'surge',
     }
   } catch (error) {
-    // Fallback: return a simulated success for demo purposes
-    // In production, this would be an actual deployment
-    const safeName = siteName
-      ? siteName.replace(/[^a-zA-Z0-9\-]/g, '-').toLowerCase()
-      : `gemmacode-${Date.now()}`
-
+    const errorMessage = error instanceof Error ? error.message : 'فشل النشر إلى Surge.sh'
     return {
-      success: true,
-      url: `https://${safeName}.surge.sh`,
+      success: false,
+      url: '',
       provider: 'surge',
+      error: errorMessage,
     }
   }
 }

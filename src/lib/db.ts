@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-import { Pool, neonConfig } from '@neondatabase/serverless'
+import { neonConfig } from '@neondatabase/serverless'
 import ws from 'ws'
 
 // Enable WebSocket for Neon serverless driver in Node.js environments
@@ -8,8 +8,10 @@ if (typeof WebSocket === 'undefined') {
   globalThis.WebSocket = ws
 }
 
-// Configure Neon for serverless
-neonConfig.webSocketConstructor = ws
+// Configure Neon for serverless (only if neonConfig is available)
+if (typeof neonConfig !== 'undefined' && neonConfig.webSocketConstructor !== undefined) {
+  neonConfig.webSocketConstructor = ws
+}
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -17,24 +19,15 @@ const globalForPrisma = globalThis as unknown as {
 
 function createPrismaClient(): PrismaClient | null {
   const databaseUrl = process.env.DATABASE_URL
-  
+
   if (!databaseUrl || databaseUrl === 'file:/dev/null') {
     console.warn('[GemmaCode] No DATABASE_URL configured. Database features disabled. Core IDE works without DB.')
     return null
   }
-  
+
   try {
-    // For serverless environments (Vercel), use connection pooling
-    // Neon provides both pooled (port 6543) and direct connections
-    const isPooled = databaseUrl.includes('-pooler.')
-    
     return new PrismaClient({
-      log: process.env.NODE_ENV === 'development' ? ['error'] : ['error'],
-      datasources: isPooled ? {
-        db: {
-          url: databaseUrl,
-        },
-      } : undefined,
+      log: ['error'],
     })
   } catch (error) {
     console.error('[GemmaCode] Database client initialization failed:', error)

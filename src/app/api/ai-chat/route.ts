@@ -1,5 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
+import fs from 'fs/promises'
+import path from 'path'
+import os from 'os'
+
+// ─── Z-AI Config Initialization for Serverless ───
+// On Vercel, the config file may not exist, so we create it from env vars
+async function ensureZaiConfig(): Promise<void> {
+  const configPath = path.join(process.cwd(), '.z-ai-config')
+
+  try {
+    await fs.access(configPath)
+    return // Config already exists
+  } catch {
+    // Config not found, create from env vars
+  }
+
+  // Build config from environment variables or fallback to defaults
+  const config = {
+    baseUrl: process.env.ZAI_BASE_URL || 'http://172.25.136.193:8080/v1',
+    apiKey: process.env.ZAI_API_KEY || 'Z.ai',
+    chatId: process.env.ZAI_CHAT_ID || '',
+    token: process.env.ZAI_TOKEN || '',
+    userId: process.env.ZAI_USER_ID || '',
+  }
+
+  // Only write if we have a valid baseUrl
+  if (config.baseUrl) {
+    try {
+      await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8')
+      console.log('[AI Chat] Created .z-ai-config from environment variables')
+    } catch (writeError) {
+      console.warn('[AI Chat] Could not write config file:', writeError)
+      // Try /tmp as fallback
+      const tmpConfigPath = '/tmp/.z-ai-config'
+      try {
+        await fs.writeFile(tmpConfigPath, JSON.stringify(config, null, 2), 'utf-8')
+        // Set env to hint the SDK where to look
+        console.log('[AI Chat] Created fallback config at /tmp/.z-ai-config')
+      } catch {
+        console.error('[AI Chat] Failed to create config in /tmp as well')
+      }
+    }
+  }
+}
 
 // ─── Rate Limiting (in-memory, per-origin) ───
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
@@ -112,6 +156,9 @@ interface ChatRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // ─── Ensure Z-AI config exists ───
+    await ensureZaiConfig()
+
     // ─── Rate Limiting ───
     const clientIP = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
                      request.headers.get('x-real-ip') ||
@@ -137,7 +184,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Initialize AI SDK ───
-    const zai = await ZAI.create()
+    let zai
+    try {
+      zai = await ZAI.create()
+    } catch (configError) {
+      console.error('[AI Chat] SDK initialization failed:', configError)
+      return NextResponse.json(
+        { error: 'خدمة الذكاء الاصطناعي غير متاحة حالياً. يرجى المحاولة لاحقاً.' },
+        { status: 503 }
+      )
+    }
 
     // ─── Streaming Response ───
     if (stream) {
