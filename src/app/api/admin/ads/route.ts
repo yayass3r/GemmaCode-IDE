@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseAvailable } from '@/lib/db'
 import { authMiddleware } from '@/lib/auth'
 
 // ─── Admin Guard ─────────────────────────────────────────────
@@ -27,6 +27,11 @@ export async function GET(_request: NextRequest) {
   try {
     const auth = adminGuard(_request)
     if (auth instanceof NextResponse) return auth
+
+    const dbAvailable = await isDatabaseAvailable()
+    if (!dbAvailable) {
+      return NextResponse.json({ ads: [], _dbOffline: true })
+    }
 
     const ads = await db.ad.findMany({
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],

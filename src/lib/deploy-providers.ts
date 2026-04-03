@@ -88,7 +88,7 @@ export function packageFilesForDeploy(
   for (const [path, content] of Object.entries(files)) {
     // Skip non-deployable files (README, config files, etc.)
     const lowerPath = path.toLowerCase()
-    if (lowerPath.endsWith('.md') || lowerPath.endsWith('.json') && !lowerPath.endsWith('.importmap.json')) {
+    if (lowerPath.endsWith('.md') || (lowerPath.endsWith('.json') && !lowerPath.endsWith('.importmap.json'))) {
       continue
     }
 

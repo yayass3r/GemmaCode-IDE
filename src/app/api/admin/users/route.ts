@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseAvailable } from '@/lib/db'
 import { authMiddleware } from '@/lib/auth'
 
 // ─── Admin Guard ─────────────────────────────────────────────
@@ -44,46 +44,33 @@ export async function GET(request: NextRequest) {
       ]
     }
 
+    const dbAvailable = await isDatabaseAvailable()
+    if (!dbAvailable) {
+      return NextResponse.json({
+        users: [],
+        pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+        _dbOffline: true,
+      })
+    }
+
     const [users, total] = await Promise.all([
       db.user.findMany({
         where,
         select: {
-          id: true,
-          name: true,
-          email: true,
-          avatar: true,
-          bio: true,
-          role: true,
-          isBanned: true,
-          isOnline: true,
-          lastSeen: true,
-          createdAt: true,
-          _count: {
-            select: { projects: true },
-          },
+          id: true, name: true, email: true, avatar: true, bio: true,
+          role: true, isBanned: true, isOnline: true, lastSeen: true, createdAt: true,
+          _count: { select: { projects: true } },
         },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
+        orderBy: { createdAt: 'desc' }, skip, take: limit,
       }),
       db.user.count({ where }),
     ])
 
-    const usersWithStats = users.map((u) => ({
-      ...u,
-      projectCount: u._count.projects,
-    }))
+    const usersWithStats = users.map((u) => ({ ...u, projectCount: u._count.projects }))
 
     return NextResponse.json({
       users: usersWithStats,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-        hasNext: page * limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit), hasNext: page * limit < total, hasPrev: page > 1 },
     })
   } catch (error) {
     console.error('[Admin Users GET] Error:', error)

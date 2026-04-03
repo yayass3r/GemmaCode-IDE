@@ -1,60 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, isDatabaseAvailable } from '@/lib/db'
 import { authMiddleware } from '@/lib/auth'
 import { deployProject, countDeployableFiles } from '@/lib/deploy-providers'
 
-// ─── POST /api/deploy ────────────────────────────────────────
-// Deploy the current project to a hosting provider.
-
 export async function POST(request: NextRequest) {
   try {
-    // ── Authenticate ──────────────────────────────────────────
     const authResult = authMiddleware(request)
     if (authResult instanceof NextResponse) return authResult
     const { user } = authResult
 
-    // ── Parse body ───────────────────────────────────────────
     const body = await request.json()
-    const {
-      files,
-      provider,
-      siteName,
-      title,
-    } = body as {
+    const { files, provider, siteName, title } = body as {
       files: Record<string, string>
       provider: string
       siteName?: string
       title?: string
     }
 
-    // ── Validation ───────────────────────────────────────────
     if (!files || typeof files !== 'object' || Object.keys(files).length === 0) {
-      return NextResponse.json(
-        { error: 'لا توجد ملفات للنشر. يرجى إنشاء ملفات في المشروع أولاً.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'لا توجد ملفات للنشر.' }, { status: 400 })
     }
 
     const validProviders = ['netlify', 'vercel', 'surge', 'cloudflare', 'tiiny']
     if (!provider || !validProviders.includes(provider)) {
-      return NextResponse.json(
-        { error: `مزود النشر غير صالح. الخيارات المتاحة: ${validProviders.join(', ')}` },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: `مزود النشر غير صالح: ${validProviders.join(', ')}` }, { status: 400 })
     }
 
-    // ── Check if index.html exists ───────────────────────────
-    const hasIndexHtml = Object.keys(files).some(
-      (path) => path.toLowerCase() === 'index.html'
-    )
+    const hasIndexHtml = Object.keys(files).some(p => p.toLowerCase() === 'index.html')
     if (!hasIndexHtml) {
-      return NextResponse.json(
-        { error: 'يجب أن يحتوي المشروع على ملف index.html للنشر.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'يجب أن يحتوي المشروع على ملف index.html.' }, { status: 400 })
     }
 
-    // ── Deploy ───────────────────────────────────────────────
     let deployResult
     try {
       deployResult = await deployProject(files, provider, siteName)
@@ -66,44 +42,42 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Save deployment to database ──────────────────────────
-    const deployment = await db.deployment.create({
-      data: {
-        userId: user.userId,
+    // Try to save to database (non-blocking)
+    const dbAvailable = await isDatabaseAvailable()
+    if (dbAvailable) {
+      try {
+        await db.deployment.create({
+          data: {
+            userId: user.userId,
+            title: title || siteName || `مشروع ${provider}`,
+            provider: deployResult.provider,
+            url: deployResult.url,
+            status: deployResult.success ? 'live' : 'failed',
+            siteId: deployResult.siteId,
+            filesCount: countDeployableFiles(files),
+          },
+        })
+      } catch {
+        // Save failed, but deployment succeeded — continue
+      }
+    }
+
+    return NextResponse.json({
+      deployment: {
         title: title || siteName || `مشروع ${provider}`,
         provider: deployResult.provider,
         url: deployResult.url,
         status: deployResult.success ? 'live' : 'failed',
-        siteId: deployResult.siteId,
         filesCount: countDeployableFiles(files),
-      },
-    })
-
-    // ── Response ─────────────────────────────────────────────
-    return NextResponse.json({
-      deployment: {
-        id: deployment.id,
-        title: deployment.title,
-        provider: deployment.provider,
-        url: deployment.url,
-        status: deployment.status,
-        filesCount: deployment.filesCount,
-        createdAt: deployment.createdAt,
       },
       success: deployResult.success,
       error: deployResult.error,
     })
   } catch (error) {
     console.error('[Deploy] Error:', error)
-    return NextResponse.json(
-      { error: 'حدث خطأ غير متوقع أثناء النشر' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'حدث خطأ غير متوقع أثناء النشر' }, { status: 500 })
   }
 }
-
-// ─── GET /api/deploy ──────────────────────────────────────────
-// List deployment history for the current user.
 
 export async function GET(request: NextRequest) {
   try {
@@ -111,28 +85,21 @@ export async function GET(request: NextRequest) {
     if (authResult instanceof NextResponse) return authResult
     const { user } = authResult
 
+    const dbAvailable = await isDatabaseAvailable()
+    if (!dbAvailable) {
+      return NextResponse.json({ deployments: [], _dbOffline: true })
+    }
+
     const deployments = await db.deployment.findMany({
       where: { userId: user.userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: {
-        id: true,
-        title: true,
-        provider: true,
-        url: true,
-        status: true,
-        filesCount: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: { id: true, title: true, provider: true, url: true, status: true, filesCount: true, createdAt: true, updatedAt: true },
     })
 
     return NextResponse.json({ deployments })
   } catch (error) {
     console.error('[Deploy] List error:', error)
-    return NextResponse.json(
-      { error: 'حدث خطأ أثناء جلب سجل النشر' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'حدث خطأ أثناء جلب سجل النشر' }, { status: 500 })
   }
 }

@@ -44,12 +44,33 @@ export const db = _db ?? new Proxy({} as PrismaClient, {
   },
 })
 
+// Check if database is actually reachable (not just configured)
+let _dbAvailable: boolean | null = null
+
 export async function isDatabaseAvailable(): Promise<boolean> {
-  if (!_db) return false
-  try {
-    await _db.$queryRaw`SELECT 1`
-    return true
-  } catch {
+  // Cache the result for 30 seconds
+  if (_dbAvailable !== null) return _dbAvailable
+
+  if (!_db) {
+    _dbAvailable = false
     return false
   }
+
+  try {
+    await _db.$queryRaw`SELECT 1`
+    _dbAvailable = true
+    // Reset cache after 30 seconds
+    setTimeout(() => { _dbAvailable = null }, 30_000)
+    return true
+  } catch {
+    _dbAvailable = false
+    // Retry after 30 seconds
+    setTimeout(() => { _dbAvailable = null }, 30_000)
+    return false
+  }
+}
+
+// Reset availability cache (call after failed operations)
+export function resetDbAvailability(): void {
+  _dbAvailable = null
 }
