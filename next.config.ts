@@ -38,7 +38,7 @@ const nextConfig: NextConfig = {
 
   /* TypeScript config */
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
 
   reactStrictMode: false,

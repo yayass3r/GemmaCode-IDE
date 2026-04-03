@@ -511,14 +511,14 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
 }))
 
 // ─── Hydrate auth from localStorage ──────────────────────────
-export function hydrateAuth(store: IDEStore) {
+export function hydrateAuth() {
   if (typeof window === 'undefined') return
   const token = localStorage.getItem('gemmacode_token')
   const userStr = localStorage.getItem('gemmacode_user')
   if (token && userStr) {
     try {
       const user = JSON.parse(userStr) as UserProfile
-      store.setState({ user, token })
+      useIDEStore.getState().setUser(user, token)
     } catch {
       localStorage.removeItem('gemmacode_token')
       localStorage.removeItem('gemmacode_user')

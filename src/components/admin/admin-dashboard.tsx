@@ -281,7 +281,7 @@ function Sidebar({
         {navItems.map((item) => {
           const isActive = activePage === item.id
           return (
-            <Tooltip key={item.id} side="left" delayDuration={0}>
+            <Tooltip key={item.id}>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => {

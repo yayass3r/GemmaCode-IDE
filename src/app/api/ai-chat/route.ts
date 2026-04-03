@@ -99,8 +99,13 @@ const FULLSTACK_SYSTEM_PROMPT = `You are Gemma 4, an elite Full-Stack AI Develop
 - You can debug complex full-stack issues by analyzing the entire request/response chain
 - You can suggest deployment configurations and optimization strategies`
 
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 interface ChatRequest {
-  messages: Array<{ role: string; content: string }>
+  messages: ChatMessage[]
   stream?: boolean
   temperature?: number
 }
@@ -142,8 +147,8 @@ export async function POST(request: NextRequest) {
           try {
             const completion = await zai.chat.completions.create({
               messages: [
-                { role: 'system', content: FULLSTACK_SYSTEM_PROMPT },
-                ...messages,
+                { role: 'system' as const, content: FULLSTACK_SYSTEM_PROMPT },
+                ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
               ],
               temperature: Math.min(Math.max(temperature, 0), 2),
               max_tokens: 4096,
@@ -220,8 +225,8 @@ export async function POST(request: NextRequest) {
     // ─── Non-Streaming Fallback ───
     const completion = await zai.chat.completions.create({
       messages: [
-        { role: 'system', content: FULLSTACK_SYSTEM_PROMPT },
-        ...messages,
+        { role: 'system' as const, content: FULLSTACK_SYSTEM_PROMPT },
+        ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       ],
       temperature: Math.min(Math.max(temperature, 0), 2),
       max_tokens: 4096,

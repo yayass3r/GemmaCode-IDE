@@ -18,7 +18,7 @@ import UserProfile from '@/components/profile/user-profile'
 import ExploreProjects from '@/components/explore/explore-projects'
 import AdminDashboard from '@/components/admin/admin-dashboard'
 import DeployPanel from '@/components/deploy/deploy-panel'
-import { useIDEStore, type MobileView } from '@/lib/store'
+import { useIDEStore, type MobileView, type UserProfile as UserProfileType } from '@/lib/store'
 import { useIsMobile } from '@/hooks/use-mobile'
 import {
   Code2,
@@ -295,8 +295,7 @@ function IDEView() {
 
 /* ─── Main Page ─── */
 export default function Home() {
-  const { currentView, user } = useIDEStore()
-  const store = useIDEStore()
+  const { currentView, user, setUser } = useIDEStore()
 
   // Hydrate auth from localStorage on mount
   useEffect(() => {
@@ -305,15 +304,15 @@ export default function Home() {
       const userStr = localStorage.getItem('gemmacode_user')
       if (token && userStr) {
         try {
-          const parsedUser = JSON.parse(userStr)
-          store.setState({ user: parsedUser, token })
+          const parsedUser = JSON.parse(userStr) as UserProfileType
+          setUser(parsedUser, token)
         } catch {
           localStorage.removeItem('gemmacode_token')
           localStorage.removeItem('gemmacode_user')
         }
       }
     }
-  }, [])
+  }, [setUser])
 
   // For IDE view, use the full-screen IDE layout
   // For other views, use the nav bar + content layout

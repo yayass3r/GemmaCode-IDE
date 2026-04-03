@@ -2,8 +2,13 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { NextRequest, NextResponse } from 'next/server'
 
+// Ensure JWT_SECRET is set in production
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.warn('[SECURITY WARNING] JWT_SECRET is not set in environment variables. Using fallback key is unsafe for production.')
+}
+
 // ─── Configuration ───────────────────────────────────────────
-const JWT_SECRET = 'gemmacode-secret-key-2024-production'
+const JWT_SECRET = process.env.JWT_SECRET || 'gemmacode-dev-fallback-key-change-in-production'
 const JWT_EXPIRY = '7d'
 
 // ─── Types ───────────────────────────────────────────────────
