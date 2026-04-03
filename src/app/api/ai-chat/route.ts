@@ -2,53 +2,84 @@ import { NextRequest, NextResponse } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
 import fs from 'fs/promises'
 import path from 'path'
-import os from 'os'
 
-// ─── Z-AI Config Initialization for Serverless ───
-// On Vercel, the config file may not exist, so we create it from env vars
-async function ensureZaiConfig(): Promise<void> {
-  const configPath = path.join(process.cwd(), '.z-ai-config')
+// ─── Z-AI SDK Initialization (Serverless-Safe) ───
+// Strategy: Write .z-ai-config to process.cwd() before calling ZAI.create()
+// This works on Vercel because the function filesystem is writable at runtime.
+// Fallback: If file write fails, bypass private constructor via runtime.
+// The config is sourced entirely from environment variables — no file needed in repo.
 
-  try {
-    await fs.access(configPath)
-    return // Config already exists
-  } catch {
-    // Config not found, create from env vars
-  }
+interface SDKConfig {
+  baseUrl: string
+  apiKey: string
+  chatId?: string
+  userId?: string
+  token?: string
+}
 
-  // Build config from environment variables or fallback to defaults
-  const config = {
+function getEnvConfig(): SDKConfig {
+  return {
     baseUrl: process.env.ZAI_BASE_URL || 'http://172.25.136.193:8080/v1',
     apiKey: process.env.ZAI_API_KEY || 'Z.ai',
     chatId: process.env.ZAI_CHAT_ID || '',
-    token: process.env.ZAI_TOKEN || '',
     userId: process.env.ZAI_USER_ID || '',
-  }
-
-  // Only write if we have a valid baseUrl
-  if (config.baseUrl) {
-    try {
-      await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8')
-      console.log('[AI Chat] Created .z-ai-config from environment variables')
-    } catch (writeError) {
-      console.warn('[AI Chat] Could not write config file:', writeError)
-      // Try /tmp as fallback
-      const tmpConfigPath = '/tmp/.z-ai-config'
-      try {
-        await fs.writeFile(tmpConfigPath, JSON.stringify(config, null, 2), 'utf-8')
-        // Set env to hint the SDK where to look
-        console.log('[AI Chat] Created fallback config at /tmp/.z-ai-config')
-      } catch {
-        console.error('[AI Chat] Failed to create config in /tmp as well')
-      }
-    }
+    token: process.env.ZAI_TOKEN || '',
   }
 }
 
-// ─── Rate Limiting (in-memory, per-origin) ───
+// Cache the SDK instance to avoid re-initializing per request
+let _sdkInstance: ZAI | null = null
+let _initAttempted = false
+
+async function initSDK(): Promise<ZAI> {
+  if (_sdkInstance) return _sdkInstance
+
+  const config = getEnvConfig()
+
+  // Strategy 1: Write config file then use ZAI.create()
+  const configPaths = [
+    path.join(process.cwd(), '.z-ai-config'),
+    '/tmp/.z-ai-config',
+  ]
+
+  for (const configPath of configPaths) {
+    try {
+      await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8')
+      console.log(`[AI Chat] Wrote .z-ai-config to ${configPath}`)
+    } catch {
+      // Try next path
+      continue
+    }
+  }
+
+  // Strategy 2: Try ZAI.create() — it scans cwd(), homedir(), /etc/
+  try {
+    _sdkInstance = await ZAI.create()
+    _initAttempted = true
+    console.log('[AI Chat] SDK initialized via ZAI.create()')
+    return _sdkInstance
+  } catch (err) {
+    console.warn('[AI Chat] ZAI.create() failed, using direct instantiation:', err)
+  }
+
+  // Strategy 3: Bypass private constructor — works because JS runtime allows it
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const instance = new (ZAI as any)(config) as ZAI
+    _sdkInstance = instance
+    _initAttempted = true
+    console.log('[AI Chat] SDK initialized via direct constructor bypass')
+    return _sdkInstance
+  } catch (directErr) {
+    console.error('[AI Chat] All SDK init strategies failed:', directErr)
+    throw new Error('Could not initialize AI SDK. Please try again later.')
+  }
+}
+
+// ─── Rate Limiting (in-memory, per-IP) ───
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
-const RATE_LIMIT_WINDOW = 60_000 // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 20 // max 20 requests per minute per IP
+const RATE_LIMIT_WINDOW = 60_000
+const RATE_LIMIT_MAX_REQUESTS = 30
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now()
@@ -63,7 +94,6 @@ function checkRateLimit(ip: string): boolean {
   return entry.count <= RATE_LIMIT_MAX_REQUESTS
 }
 
-// Clean up stale rate limit entries periodically
 if (typeof setInterval !== 'undefined') {
   setInterval(() => {
     const now = Date.now()
@@ -74,8 +104,8 @@ if (typeof setInterval !== 'undefined') {
 }
 
 // ─── Input Validation ───
-const MAX_MESSAGE_LENGTH = 50_000 // Max 50K chars per message
-const MAX_MESSAGES_COUNT = 50 // Max 50 messages in history
+const MAX_MESSAGE_LENGTH = 50_000
+const MAX_MESSAGES_COUNT = 50
 
 function validateMessages(messages: unknown): { valid: boolean; error?: string } {
   if (!Array.isArray(messages)) return { valid: false, error: 'messages must be an array' }
@@ -97,51 +127,69 @@ function validateMessages(messages: unknown): { valid: boolean; error?: string }
   return { valid: true }
 }
 
-// ─── Full-Stack Expert System Prompt ───
-const FULLSTACK_SYSTEM_PROMPT = `You are Gemma 4, an elite Full-Stack AI Development Assistant integrated into GemmaCode IDE. You are a world-class software engineer with deep expertise across the entire development stack.
+// ─── Gemma 4 Full-Stack Expert System Prompt ───
+const FULLSTACK_SYSTEM_PROMPT = `You are Gemma 4, an elite Full-Stack AI Development Assistant integrated into GemmaCode IDE — an online IDE for building web applications. You are a world-class software engineer with deep expertise across the entire development stack.
 
 ## Core Expertise:
-- **Frontend**: React, Next.js, Vue, Angular, HTML5, CSS3, Tailwind CSS, TypeScript, JavaScript, Svelte
-- **Backend**: Node.js, Express, Fastify, NestJS, Python (FastAPI, Django, Flask), Go, Rust
+- **Frontend**: React, Next.js, Vue, Angular, HTML5, CSS3, Tailwind CSS, Bootstrap, TypeScript, JavaScript, Svelte
+- **Backend**: Node.js, Express, Fastify, NestJS, Python (FastAPI, Django, Flask), Go, Rust, PHP (Laravel)
 - **Database**: PostgreSQL, MySQL, MongoDB, SQLite, Redis, Prisma ORM, Drizzle ORM, TypeORM
 - **API Design**: REST APIs, GraphQL, WebSocket, tRPC, gRPC
 - **DevOps**: Docker, CI/CD, AWS, Vercel, Netlify, Nginx
-- **Authentication**: JWT, OAuth 2.0, NextAuth.js, session-based auth
+- **Authentication**: JWT, OAuth 2.0, NextAuth.js, session-based auth, Firebase Auth
 - **State Management**: Redux, Zustand, Pinia, Context API, React Query, SWR
 - **Testing**: Jest, Vitest, Cypress, Playwright, React Testing Library
+- **Mobile**: React Native, Flutter, Progressive Web Apps (PWA)
 
-## Guidelines:
-1. **Code Quality**: Write clean, production-ready code with proper error handling, type safety, and best practices
-2. **Architecture**: Follow SOLID principles, design patterns, and proper project structure
-3. **Explanations**: Be thorough but concise. Explain the "why" behind architectural decisions
-4. **Code Blocks**: Always use markdown code blocks with proper language tags
-5. **File References**: When suggesting code changes, clearly indicate which file each code block belongs to using format: \`📁 filename.ext\`
-6. **Full Context**: When given project files, analyze the entire codebase to provide consistent suggestions
-7. **Security**: Always consider security implications (XSS, CSRF, SQL injection, auth)
-8. **Performance**: Suggest optimizations for both frontend (bundle size, rendering) and backend (query optimization, caching)
-9. **Multi-file Changes**: When a feature requires changes across multiple files, present ALL necessary changes clearly
+## CRITICAL RULES — Web Application Building:
+1. When the user asks you to BUILD or CREATE a web application, you MUST generate complete, working code for ALL files needed
+2. Always start with \`📁 index.html\` — the entry point of every web application
+3. Generate ALL necessary files: HTML structure, CSS styling, and JavaScript logic
+4. Every HTML file must be COMPLETE and SELF-CONTAINED — it must work when opened directly in a browser
+5. Use modern, clean, responsive design with proper CSS (Flexbox/Grid)
+6. Include ALL functionality in the code — no placeholders, no "TODO" comments, no stubs
+7. Test every piece of code mentally before outputting — ensure it will run without errors
+8. For complex apps, provide a clear file structure overview first, then generate each file
+
+## Web App Building Template:
+When building web applications, follow this structure:
+- \`📁 index.html\` — Complete HTML with embedded or linked CSS/JS
+- \`📁 style.css\` — All styles (responsive, animations, dark mode support)
+- \`📁 script.js\` — All JavaScript logic (DOM manipulation, events, API calls)
+- For each file, provide the COMPLETE code — never use "..." or "// rest of code"
+
+## Code Quality Standards:
+1. **No Syntax Errors**: Every bracket, tag, and semicolon must be correct
+2. **Responsive Design**: All UI must work on mobile (320px) to desktop (1920px+)
+3. **Modern JavaScript**: Use ES6+ features, async/await, optional chaining
+4. **CSS Best Practices**: Use CSS variables for theming, flexbox/grid for layout
+5. **Accessibility**: Proper semantic HTML, ARIA labels, keyboard navigation
+6. **Performance**: Minimize DOM manipulation, use event delegation, lazy loading
+7. **Security**: Sanitize user inputs, avoid eval(), use CSP-friendly patterns
 
 ## Response Format:
 - Use **bold** for emphasis on key concepts
 - Use \`inline code\` for variable/function names
-- Use fenced code blocks with language identifiers
+- Use fenced code blocks with language identifiers (html, css, javascript, typescript, python, etc.)
 - Structure responses with clear headers and sections
-- For multi-file changes, label each file clearly
+- ALWAYS label each file with \`📁 filename.ext\` before the code block
+- For multi-file projects, present ALL files in order of dependency
 
 ## Language:
-- Respond in the same language the user uses
-- If the user writes in Arabic, respond in Arabic
-- If in English, respond in English
-- Maintain technical terms in English when appropriate (e.g., "API endpoint", "component", "middleware")
+- Respond in the SAME LANGUAGE the user uses
+- If Arabic → respond in Arabic (keep technical terms in English)
+- If English → respond in English
 
 ## Special Capabilities:
-- You can generate complete project scaffolding (frontend + backend)
-- You can design database schemas with proper relationships
-- You can create RESTful API endpoints with validation and error handling
-- You can build responsive UI components with modern frameworks
-- You can implement authentication and authorization flows
-- You can debug complex full-stack issues by analyzing the entire request/response chain
-- You can suggest deployment configurations and optimization strategies`
+- Generate complete, production-ready web applications from scratch
+- Build interactive UIs with smooth animations and transitions
+- Create full-stack applications with proper architecture
+- Design and implement database schemas with Prisma
+- Build RESTful APIs with complete CRUD operations
+- Implement real-time features with WebSocket
+- Create authentication systems (login, signup, protected routes)
+- Debug complex issues by analyzing the full request/response chain
+- Suggest deployment configurations for Vercel, Netlify, AWS`
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -156,9 +204,6 @@ interface ChatRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    // ─── Ensure Z-AI config exists ───
-    await ensureZaiConfig()
-
     // ─── Rate Limiting ───
     const clientIP = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
                      request.headers.get('x-real-ip') ||
@@ -184,9 +229,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Initialize AI SDK ───
-    let zai
+    let zai: ZAI
     try {
-      zai = await ZAI.create()
+      zai = await initSDK()
     } catch (configError) {
       console.error('[AI Chat] SDK initialization failed:', configError)
       return NextResponse.json(
@@ -195,6 +240,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Build messages array with system prompt
+    const allMessages = [
+      { role: 'system' as const, content: FULLSTACK_SYSTEM_PROMPT },
+      ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    ]
+
     // ─── Streaming Response ───
     if (stream) {
       const encoder = new TextEncoder()
@@ -202,20 +253,18 @@ export async function POST(request: NextRequest) {
         async start(controller) {
           try {
             const completion = await zai.chat.completions.create({
-              messages: [
-                { role: 'system' as const, content: FULLSTACK_SYSTEM_PROMPT },
-                ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-              ],
+              messages: allMessages,
               temperature: Math.min(Math.max(temperature, 0), 2),
-              max_tokens: 4096,
+              max_tokens: 8192,
               stream: true,
             })
 
-            const charStream = completion as unknown as AsyncIterable<string>
+            // Handle streaming response — SDK returns SSE stream
+            const rawStream = completion as unknown as AsyncIterable<string>
             let buffer = ''
 
-            for await (const char of charStream) {
-              buffer += char
+            for await (const chunk of rawStream) {
+              buffer += chunk
               const lines = buffer.split('\n')
               buffer = lines.pop() || ''
 
@@ -238,13 +287,13 @@ export async function POST(request: NextRequest) {
                       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`))
                     }
                   } catch {
-                    // Skip malformed JSON
+                    // Skip malformed JSON chunks — continue streaming
                   }
                 }
               }
             }
 
-            // Process remaining buffer
+            // Process any remaining buffer
             if (buffer.trim()) {
               const trimmed = buffer.trim()
               if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
@@ -261,6 +310,7 @@ export async function POST(request: NextRequest) {
             controller.enqueue(encoder.encode('data: [DONE]\n\n'))
             controller.close()
           } catch (err) {
+            console.error('[AI Chat] Stream error:', err)
             const message = err instanceof Error ? err.message : 'Stream error'
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`))
             controller.close()
@@ -280,15 +330,12 @@ export async function POST(request: NextRequest) {
 
     // ─── Non-Streaming Fallback ───
     const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system' as const, content: FULLSTACK_SYSTEM_PROMPT },
-        ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-      ],
+      messages: allMessages,
       temperature: Math.min(Math.max(temperature, 0), 2),
-      max_tokens: 4096,
+      max_tokens: 8192,
     })
 
-    const messageContent = completion.choices[0]?.message?.content
+    const messageContent = completion.choices?.[0]?.message?.content
 
     if (!messageContent) {
       return NextResponse.json({ error: 'No response from AI' }, { status: 500 })
@@ -296,7 +343,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ content: messageContent })
   } catch (error: unknown) {
-    console.error('AI Chat error:', error)
+    console.error('[AI Chat] Error:', error)
     const message = error instanceof Error ? error.message : 'Internal server error'
     return NextResponse.json({ error: message }, { status: 500 })
   }
